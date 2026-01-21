@@ -1,7 +1,39 @@
 <template>
-	<Dialog v-model="show" :options="{ title: isEditMode ? __('Edit Customer') : __('Create New Customer'), size: 'md' }">
+	<Dialog v-model="show" :options="{ title: __('Create New Customer'), size: 'md' }">
 		<template #body-content>
 			<div class="flex flex-col gap-6">
+				<!-- GSTIN with Autofill (Optional) -->
+				<div>
+					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+						{{ __("GSTIN") }}
+						<span class="text-xs text-gray-500 font-normal ml-1">({{ __("Optional") }})</span>
+					</label>
+					<div class="flex gap-2">
+						<input
+							v-model="customerData.gstin"
+							type="text"
+							:placeholder="__('Enter 15-digit GSTIN to autofill')"
+							maxlength="15"
+							class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-start uppercase"
+							@input="customerData.gstin = customerData.gstin.toUpperCase()"
+						/>
+						<button
+							type="button"
+							@click="fetchGSTINInfo"
+							:disabled="!customerData.gstin || customerData.gstin.length !== 15 || fetchingGSTIN"
+							class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+						>
+							{{ fetchingGSTIN ? __("Fetching...") : __("Autofill") }}
+						</button>
+					</div>
+					<p v-if="gstinStatus" class="mt-1 text-xs" :class="gstinStatus.includes('Status') ? 'text-green-600' : 'text-red-600'">
+						{{ gstinStatus }}
+					</p>
+					<p class="mt-1 text-xs text-gray-500">
+						{{ __("Enter GSTIN to auto-populate business details, or fill manually below") }}
+					</p>
+				</div>
+
 				<!-- Customer Name (Required) -->
 				<div>
 					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
@@ -13,6 +45,37 @@
 						:placeholder="__('Enter customer name')"
 						required
 					/>
+				</div>
+
+				<!-- Customer Type -->
+				<div>
+					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+						{{ __("Customer Type") }}
+					</label>
+					<select
+						v-model="customerData.customer_type"
+						class="w-full px-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+					>
+						<option v-for="type in customerTypes" :key="type" :value="type">
+							{{ type }}
+						</option>
+					</select>
+				</div>
+
+				<!-- GST Category -->
+				<div>
+					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+						{{ __("GST Category") }}
+					</label>
+					<select
+						v-model="customerData.gst_category"
+						class="w-full px-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+					>
+						<option value="">{{ __("Select GST Category") }}</option>
+						<option v-for="category in gstCategories" :key="category" :value="category">
+							{{ category }}
+						</option>
+					</select>
 				</div>
 
 				<!-- Mobile Number with Country Code Selector -->
@@ -158,10 +221,10 @@
 					<Button
 						variant="solid"
 						@click="handleCreate"
-						:loading="createCustomerResource.loading || updateCustomerResource.loading || checkingPermission"
+						:loading="createCustomerResource.loading || checkingPermission"
 						:disabled="!customerData.customer_name || !hasPermission"
 					>
-						{{ isEditMode ? __("Save Changes") : __("Create Customer") }}
+						{{ __("Create Customer") }}
 					</Button>
 					<Button variant="subtle" @click="show = false">
 						{{ __("Cancel") }}
@@ -208,10 +271,9 @@ const props = defineProps({
 	modelValue: Boolean,
 	posProfile: String,
 	initialName: String,
-	customer: Object, // Customer object for edit mode
 })
 
-const emit = defineEmits(["update:modelValue", "customer-created", "customer-updated"])
+const emit = defineEmits(["update:modelValue", "customer-created"])
 
 // =============================================================================
 // State
@@ -228,13 +290,20 @@ const countrySearchRef = ref(null)
 
 const customerGroups = ref(["Commercial", "Individual", "Non Profit", "Government"])
 const territories = ref(["All Territories"])
+const customerTypes = ref(["Company", "Individual", "Partnership"])
+const gstCategories = ref(["Registered Regular", "Registered Composition", "Unregistered", "SEZ", "Overseas", "Tax Deductor", "Tax Collector", "UIN Holders"])
+const fetchingGSTIN = ref(false)
+const gstinStatus = ref("")
 
 const customerData = ref({
 	customer_name: "",
+	customer_type: "Individual",
 	mobile_no: "",
 	email_id: "",
 	customer_group: "Individual",
 	territory: "All Territories",
+	gstin: "",
+	gst_category: "",
 })
 
 // =============================================================================
@@ -245,8 +314,6 @@ const show = computed({
 	get: () => props.modelValue,
 	set: (val) => emit("update:modelValue", val),
 })
-
-const isEditMode = computed(() => !!props.customer?.name)
 
 const currentCountryCode = computed(() => {
 	const country = countriesStore.countries.find((c) => c.isd === selectedCountryCode.value)
@@ -328,6 +395,120 @@ const updateTerritoryFromCountry = () => {
 }
 
 // =============================================================================
+// GSTIN Autofill Methods
+// =============================================================================
+
+/** Fetch GSTIN info from POS API */
+const fetchGSTINInfo = async () => {
+	const gstin = customerData.value.gstin?.trim()
+
+	if (!gstin || gstin.length !== 15) {
+		gstinStatus.value = ""
+		return
+	}
+
+	fetchingGSTIN.value = true
+	gstinStatus.value = "Fetching..."
+
+	try {
+		// Get CSRF token from window.frappe or window
+		const csrfToken = window.frappe?.csrf_token || window.csrf_token || ""
+
+		const response = await fetch("/api/method/pos_next.api.gstin.get_gstin_info_for_pos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Frappe-CSRF-Token": csrfToken,
+			},
+			body: JSON.stringify({
+				gstin: gstin,
+			}),
+		})
+
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+		}
+
+		const data = await response.json()
+
+		// Check for Frappe exception
+		if (data.exc || data._server_messages) {
+			let errorMsg = "Unable to verify GSTIN"
+
+			// Try to extract error message from server messages
+			if (data._server_messages) {
+				try {
+					const messages = JSON.parse(data._server_messages)
+					if (messages.length > 0) {
+						const parsedMsg = JSON.parse(messages[0])
+						errorMsg = parsedMsg.message || errorMsg
+					}
+				} catch (e) {
+					log.warn("Could not parse server messages", e)
+				}
+			}
+
+			gstinStatus.value = errorMsg
+			log.warn("GSTIN verification failed", { gstin, error: errorMsg })
+			return
+		}
+
+		if (data.message && !data.message.error) {
+			const gstinInfo = data.message
+
+			// Set business name as customer name (only if empty)
+			if (gstinInfo.business_name && !customerData.value.customer_name) {
+				customerData.value.customer_name = gstinInfo.business_name
+			}
+
+			// Set GST Category
+			if (gstinInfo.gst_category) {
+				customerData.value.gst_category = gstinInfo.gst_category
+			}
+
+			// Set customer type based on GSTIN 6th character (F=Partnership, C=Company)
+			const gstinTypeChar = gstin[5]
+			if (gstinTypeChar === "F") {
+				customerData.value.customer_type = "Partnership"
+			} else if (gstinTypeChar === "C") {
+				customerData.value.customer_type = "Company"
+			}
+
+			// Set address if available
+			if (gstinInfo.permanent_address) {
+				const addr = gstinInfo.permanent_address
+
+				// Set state-based territory
+				if (addr.state && territories.value.includes(addr.state)) {
+					customerData.value.territory = addr.state
+				}
+			}
+
+			// Set status description
+			if (gstinInfo.status) {
+				gstinStatus.value = `Status: ${gstinInfo.status}`
+			} else {
+				gstinStatus.value = "Details fetched successfully"
+			}
+
+			log.info("GSTIN info fetched successfully", gstinInfo)
+			showSuccess(__("GSTIN details fetched successfully"))
+		} else {
+			const errorMsg = data.message?.message || "Invalid GSTIN or unable to fetch details"
+			gstinStatus.value = errorMsg
+			log.warn("Failed to fetch GSTIN info", data)
+		}
+	} catch (error) {
+		log.error("Error fetching GSTIN info", error)
+		const errorMsg = error.message || "Network error while fetching GSTIN details"
+		gstinStatus.value = errorMsg
+		showError(__("Error: {0}", [errorMsg]))
+	} finally {
+		fetchingGSTIN.value = false
+	}
+}
+
+// =============================================================================
 // API Resources
 // =============================================================================
 
@@ -337,11 +518,13 @@ const createCustomerResource = createResource({
 		doc: {
 			doctype: "Customer",
 			customer_name: customerData.value.customer_name,
-			customer_type: "Individual",
+			customer_type: customerData.value.customer_type || "Individual",
 			customer_group: customerData.value.customer_group || __("Individual"),
 			territory: customerData.value.territory || __("All Territories"),
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
+			gstin: customerData.value.gstin || "",
+			gst_category: customerData.value.gst_category || "",
 		},
 	}),
 	onSuccess: (data) => {
@@ -352,30 +535,6 @@ const createCustomerResource = createResource({
 	onError: (error) => {
 		log.error("Error creating customer", error)
 		showError(error.message || __("Failed to create customer"))
-	},
-})
-
-const updateCustomerResource = createResource({
-	url: "frappe.client.set_value",
-	makeParams: () => ({
-		doctype: "Customer",
-		name: props.customer?.name,
-		fieldname: {
-			customer_name: customerData.value.customer_name,
-			customer_group: customerData.value.customer_group || __("Individual"),
-			territory: customerData.value.territory || __("All Territories"),
-			mobile_no: customerData.value.mobile_no || "",
-			email_id: customerData.value.email_id || "",
-		},
-	}),
-	onSuccess: (data) => {
-		showSuccess(__("Customer {0} updated successfully", [data.customer_name]))
-		emit("customer-updated", data)
-		show.value = false
-	},
-	onError: (error) => {
-		log.error("Error updating customer", error)
-		showError(error.message || __("Failed to update customer"))
 	},
 })
 
@@ -449,23 +608,23 @@ const handleCreate = async () => {
 	if (!customerData.value.customer_name) {
 		return showError(__("Customer Name is required"))
 	}
-	if (isEditMode.value) {
-		await updateCustomerResource.submit()
-	} else {
-		await createCustomerResource.submit()
-	}
+	await createCustomerResource.submit()
 }
 
 const resetForm = () => {
 	Object.assign(customerData.value, {
 		customer_name: "",
+		customer_type: "Individual",
 		mobile_no: "",
 		email_id: "",
 		customer_group: "Individual",
 		territory: "All Territories",
+		gstin: "",
+		gst_category: "",
 	})
 	selectedCountryCode.value = ""
 	phoneNumber.value = ""
+	gstinStatus.value = ""
 }
 
 // =============================================================================
@@ -475,31 +634,6 @@ const resetForm = () => {
 watch(
 	() => props.initialName,
 	(name) => name && (customerData.value.customer_name = name)
-)
-
-// Pre-fill form when customer prop changes (edit mode)
-watch(
-	() => props.customer,
-	(customer) => {
-		if (customer?.name) {
-			customerData.value.customer_name = customer.customer_name || ""
-			customerData.value.email_id = customer.email_id || ""
-			customerData.value.customer_group = customer.customer_group || "Individual"
-			customerData.value.territory = customer.territory || "All Territories"
-			// Handle mobile_no with country code
-			if (customer.mobile_no) {
-				customerData.value.mobile_no = customer.mobile_no
-				if (customer.mobile_no.includes("-")) {
-					const [code, ...rest] = customer.mobile_no.split("-")
-					selectedCountryCode.value = code
-					phoneNumber.value = rest.join("-")
-				} else {
-					phoneNumber.value = customer.mobile_no
-				}
-			}
-		}
-	},
-	{ immediate: true }
 )
 
 watch(
