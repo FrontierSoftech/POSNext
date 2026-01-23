@@ -5,8 +5,6 @@
 from __future__ import unicode_literals
 import frappe
 from frappe import _
-from pos_next.api.utilities import check_user_company
-from pos_next.api.utilities import _parse_list_parameter
 
 
 @frappe.whitelist()
@@ -85,10 +83,7 @@ def get_pos_settings(pos_profile):
 				"allow_partial_payment",
 				"decimal_precision",
 				"allow_negative_stock",
-				"enable_sales_persons",
-				"allow_sales_order",
-				"allow_select_sales_order",
-				"create_only_sales_order"
+				"enable_sales_persons"
 			],
 			as_dict=True
 		)
@@ -108,10 +103,7 @@ def get_pos_settings(pos_profile):
 				"allow_partial_payment": 0,
 				"decimal_precision": "2",
 				"allow_negative_stock": 0,
-				"enable_sales_persons": "Disabled",
-				"allow_sales_order": 0,
-				"allow_select_sales_order": 0,
-				"create_only_sales_order": 0
+				"enable_sales_persons": "Disabled"
 			}
 
 		return pos_settings
@@ -152,18 +144,72 @@ def get_payment_methods(pos_profile):
 
 
 @frappe.whitelist()
-def get_taxes(pos_profile):
-	"""Get tax configuration from POS Profile"""
+def get_taxes(pos_profile, customer=None, shipping_address=None):
+	"""Get tax configuration based on POS Profile and customer's GST state.
+
+	Uses comprehensive GST tax utilities to determine:
+	- Place of supply (from customer address or GSTIN)
+	- Inter-state vs intra-state supply
+	- Appropriate tax template (CGST+SGST for intra-state, IGST for inter-state)
+
+	Args:
+		pos_profile: POS Profile name
+		customer: Customer name (optional) - used to determine GST state
+		shipping_address: Shipping address name (optional) - used for place of supply
+
+	Returns:
+		dict with:
+		- taxes: List of tax rows
+		- tax_template: Template name used
+		- is_inter_state: Boolean indicating inter-state supply
+		- place_of_supply: Place of supply in format "XX-State Name"
+	"""
 	try:
 		if not pos_profile:
-			return []
+			return {"taxes": [], "tax_template": None, "is_inter_state": False, "place_of_supply": None}
 
 		# Get the POS Profile
 		profile_doc = frappe.get_cached_doc("POS Profile", pos_profile)
-		taxes_and_charges = getattr(profile_doc, 'taxes_and_charges', None)
+		company = profile_doc.company
+
+		# Use comprehensive GST tax utilities
+		from pos_next.api.gst_tax import (
+			get_gst_tax_template,
+			is_inter_state_supply,
+			get_place_of_supply,
+		)
+
+		# Determine tax template based on customer's GST state
+		taxes_and_charges = None
+		is_inter_state = False
+		place_of_supply = None
+
+		if customer:
+			# Get place of supply
+			place_of_supply = get_place_of_supply(customer, company, shipping_address)
+			
+			# Determine if inter-state supply
+			is_inter_state = is_inter_state_supply(customer, company, shipping_address)
+			
+			# Get appropriate tax template
+			taxes_and_charges = get_gst_tax_template(
+				company,
+				customer=customer,
+				shipping_address=shipping_address,
+				is_inter_state=is_inter_state
+			)
+
+		# Fallback to POS Profile's default template
+		if not taxes_and_charges:
+			taxes_and_charges = getattr(profile_doc, 'taxes_and_charges', None)
 
 		if not taxes_and_charges:
-			return []
+			return {
+				"taxes": [],
+				"tax_template": None,
+				"is_inter_state": is_inter_state,
+				"place_of_supply": place_of_supply
+			}
 
 		# Get the tax template
 		template_doc = frappe.get_cached_doc("Sales Taxes and Charges Template", taxes_and_charges)
@@ -180,11 +226,78 @@ def get_taxes(pos_profile):
 				"idx": tax_row.idx
 			})
 
-		return taxes
+		return {
+			"taxes": taxes,
+			"tax_template": taxes_and_charges,
+			"is_inter_state": is_inter_state,
+			"place_of_supply": place_of_supply
+		}
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Get Taxes Error")
 		# Return empty array instead of throwing - taxes are optional
-		return []
+		return {"taxes": [], "tax_template": None, "is_inter_state": False, "place_of_supply": None}
+
+
+def _get_gst_template(company, is_inter_state=False):
+	"""Get the appropriate GST tax template for a company.
+
+	Searches for templates with 'Out-state' or 'Inter' in name for inter-state,
+	'In-state' or 'Intra' in name for intra-state.
+
+	Args:
+		company: Company name
+		is_inter_state: Boolean - True for IGST, False for CGST+SGST
+
+	Returns:
+		Tax template name or None
+	"""
+	frappe.log_error(f"_get_gst_template called: company={company}, is_inter_state={is_inter_state}", "GST Template Debug")
+
+	# Your templates: "Output GST In-state - TJCPL", "Output GST Out-state - TJCPL"
+	if is_inter_state:
+		# Look for Out-state templates (exclude RCM)
+		patterns = [
+			'Output GST Out-state%',
+			'%Out-state%',
+			'%Out State%',
+			'%IGST%',
+		]
+	else:
+		# Look for In-state templates (exclude RCM)
+		patterns = [
+			'Output GST In-state%',
+			'%In-state%',
+			'%In State%',
+		]
+
+	for pattern in patterns:
+		# Use SQL to exclude RCM templates
+		template = frappe.db.sql("""
+			SELECT name FROM `tabSales Taxes and Charges Template`
+			WHERE company = %s
+			AND disabled = 0
+			AND name LIKE %s
+			AND name NOT LIKE '%%RCM%%'
+			LIMIT 1
+		""", (company, pattern), as_dict=True)
+
+		frappe.log_error(f"Pattern '{pattern}' -> result: {template}", "GST Template Debug")
+
+		if template:
+			return template[0].name
+
+	# Fallback: any active non-RCM template
+	fallback = frappe.db.sql("""
+		SELECT name FROM `tabSales Taxes and Charges Template`
+		WHERE company = %s
+		AND disabled = 0
+		AND name NOT LIKE '%%RCM%%'
+		LIMIT 1
+	""", (company,), as_dict=True)
+
+	result = fallback[0].name if fallback else None
+	frappe.log_error(f"Fallback template: {result}", "GST Template Debug")
+	return result
 
 
 @frappe.whitelist()
@@ -320,274 +433,3 @@ def get_sales_persons(pos_profile=None):
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "Get Sales Persons Error")
 		return []
-
-@frappe.whitelist()
-def get_create_pos_profile(*args, **kwargs):
-	"""
-	Get selection data for creating POS Profile
-	
-	Returns:
-		- warehouses: Available warehouses for user's company
-		- customers: Available customers
-		- currencies: Available currencies
-		- payments: Available payment methods (Mode of Payment)
-		- write_off_accounts: Available accounts for write-off
-		- write_off_cost_centers: Available cost centers
-		- applicable_for_users: Available users
-		- posa_cash_mode_of_payment: Cash payment methods
-		- item_groups: Available item groups
-		- customer_groups: Available customer groups
-	"""
-	try:
-		user_company = check_user_company()
-		user_company = user_company.get("company")
-		if not user_company:
-			frappe.throw(_("User must have a company assigned"))
-
-		warehouses = frappe.get_list(
-			"Warehouse",
-			filters={"disabled": 0, "is_group": 0, "company": user_company},
-			fields=["name"],
-			order_by="name"
-		)
-		customers = frappe.get_list(
-			"Customer",
-			filters={"disabled": 0},
-		)
-		
-		currencies = frappe.get_list(
-			"Currency",
-			filters={"enabled": 1},
-			fields=["name", "currency_name", "symbol"],
-		)
-		
-		payments = frappe.get_list("Mode of Payment")
-		
-		posa_cash_mode_of_payment = payments
-	
-		write_off_accounts = frappe.get_list(
-			"Account",
-			filters={
-				"report_type": "Profit and Loss",
-				"disabled": 0,
-				"is_group": 0,
-				"company": user_company
-			},
-		)
-
-		write_off_cost_centers = frappe.get_list(
-			"Cost Center",
-			filters={
-				"is_group": 0,
-				"disabled": 0,
-				"company": user_company
-			},
-		)
-
-		applicable_for_users = frappe.get_list(
-			"User",
-			filters={
-				"enabled": 1,
-			},
-			fields=["name", "full_name"],
-			order_by="full_name"
-		)
-		item_groups = frappe.get_list(
-			"Item Group",
-			filters={"is_group": 0},
-		)
-		
-		customer_groups = frappe.get_list(
-			"Customer Group",
-			filters={"is_group": 0},
-		)
-		
-		data = {
-			"warehouses": warehouses,
-			"customers": customers,
-			"currencies": currencies,
-			"payments": payments,
-			"write_off_accounts": write_off_accounts,
-			"write_off_cost_centers": write_off_cost_centers,
-			"applicable_for_users": applicable_for_users,
-			"posa_cash_mode_of_payment": posa_cash_mode_of_payment,
-			"item_groups": item_groups,
-			"customer_groups": customer_groups,
-			"apply_discount_on_options": [
-				{"value": "Grand Total", "label": "Grand Total"},
-				{"value": "Net Total", "label": "Net Total"},
-			]
-		}
-		return data
-		
-	except Exception as e:
-		frappe.throw(_("Error getting create POS profile: {0}").format(str(e)))
-
-@frappe.whitelist()
-def create_pos_profile(*arg ,**parameters):
-	"""
-	Create a new POS Profile
-	
-	Required fields:
-		- __newname: POS Profile name
-		- currency: Currency code
-		- warehouse: Warehouse name
-		- payments: List of payment methods
-		- write_off_account: Account name for write-off
-		- write_off_cost_center: Cost center name
-		- write_off_limit: Write-off limit amount
-	
-	Optional fields:
-		- customer: Default customer
-		- applicable_for_users: List of users
-		- posa_cash_mode_of_payment: Cash payment method
-		- item_groups: List of item groups (filters)
-		- customer_groups: List of customer groups (filters)
-		- apply_discount_on: Discount application method
-	"""
-
-
-		# Extract list parameters 
-	payments = parameters.pop("payments", [])
-	applicable_for_users = parameters.pop("applicable_for_users", [])
-	item_groups = parameters.pop("item_groups", [])
-	customer_groups = parameters.pop("customer_groups", [])
-	
-	# parse list parameters
-	payments = _parse_list_parameter(payments, "payments")
-	applicable_for_users = _parse_list_parameter(applicable_for_users, "applicable_for_users")
-	item_groups = _parse_list_parameter(item_groups, "item_groups")
-	customer_groups = _parse_list_parameter(customer_groups, "customer_groups")
-	
-	# Get user's company
-	user_company_data = check_user_company()
-	user_company = user_company_data.get("company")
-	
-	if not user_company:
-		frappe.throw(_("User must have a company assigned"))
-
-	pos_profile = frappe.new_doc("POS Profile")
-	pos_profile.company = user_company
-
-	pos_profile.update(parameters)
-
-	# Child tables
-	if not payments or len(payments) == 0:
-		frappe.throw(_("At least one payment method is required"))
-	
-	for payment in payments:
-		if isinstance(payment, dict):
-			pos_profile.append("payments", {
-				"mode_of_payment": payment.get("mode_of_payment"),
-				"default": payment.get("default", 0),
-				"allow_in_returns": payment.get("allow_in_returns", 0),
-			})
-		elif isinstance(payment, str) and payment != "":
-			pos_profile.append("payments", {"mode_of_payment": payment})
-
-	if isinstance(applicable_for_users, list) and len(applicable_for_users) > 0:
-		for user in applicable_for_users:
-			if isinstance(user, dict):
-				pos_profile.append("applicable_for_users", {
-					"user": user.get("user"),
-					"default": user.get("default", 0),
-				})
-			elif isinstance(user, str) and user != "":
-				pos_profile.append("applicable_for_users", {"user": user})
-
-	if isinstance(item_groups, list) and len(item_groups) > 0:
-		for item_group in item_groups:
-			item_group_name = item_group if isinstance(item_group, str) else item_group.get("item_group")
-			pos_profile.append("item_groups", {"item_group": item_group_name})
-
-	if isinstance(customer_groups, list) and len(customer_groups) > 0:
-		for customer_group in customer_groups:
-			customer_group_name = customer_group if isinstance(customer_group, str) else customer_group.get("customer_group")
-			pos_profile.append("customer_groups", {"customer_group": customer_group_name})
-
-	pos_profile.insert()
-	return pos_profile
-
-@frappe.whitelist()		
-def update_pos_profile(*args, **parameters):
-	"""
-		Update an existing POS Profile
-		
-		Args:
-			pos_profile: POS Profile name
-			parameters: Update parameters (all optional)
-	"""
-	# Extract child table parameters BEFORE prepare_query_parameters filters them
-	payments = parameters.pop("payments", None)
-	applicable_for_users = parameters.pop("applicable_for_users", None)
-	item_groups = parameters.pop("item_groups", None)
-	customer_groups = parameters.pop("customer_groups", None)
-	pos_profile_name = parameters.pop("pos_profile_name", None)
-	# parse list parameters
-	payments = _parse_list_parameter(payments, "payments")
-	applicable_for_users = _parse_list_parameter(applicable_for_users, "applicable_for_users")
-	item_groups = _parse_list_parameter(item_groups, "item_groups")
-	customer_groups = _parse_list_parameter(customer_groups, "customer_groups")
-	
-	pos_profile = frappe.get_doc("POS Profile", pos_profile_name)
-	
-	# Update main fields
-	if parameters:
-		pos_profile.update(parameters)
-
-	if payments is not None:
-		pos_profile.payments = []		
-		for payment in payments:
-			if isinstance(payment, dict):
-				mode_of_payment = payment.get("mode_of_payment")
-				if mode_of_payment:
-					pos_profile.append("payments", {
-						"mode_of_payment": mode_of_payment,
-						"default": payment.get("default", 0),
-						"allow_in_returns": payment.get("allow_in_returns", 0)
-					})
-			elif isinstance(payment, str) and payment:
-				pos_profile.append("payments", {"mode_of_payment": payment})
-					
-	
-	if applicable_for_users is not None:
-		pos_profile.applicable_for_users = []
-		for user in applicable_for_users:
-			if isinstance(user, dict):
-				user_name = user.get("user") or user.get("name")
-				if user_name:			
-					pos_profile.append("applicable_for_users", {
-						"user": user_name,
-						"default": user.get("default", 0)
-					})
-			elif isinstance(user, str):
-				pos_profile.append("applicable_for_users", {"user": user, "default": 0})
-	
-	if item_groups is not None:
-		pos_profile.item_groups = []
-		for item_group in item_groups:
-			item_group_name = item_group if isinstance(item_group, str) else item_group.get("item_group") or item_group.get("name")
-			if item_group_name:
-				pos_profile.append("item_groups", {"item_group": item_group_name})
-
-	
-	if customer_groups is not None:
-		pos_profile.customer_groups = []
-		for customer_group in customer_groups:
-			customer_group_name = customer_group if isinstance(customer_group, str) else customer_group.get("customer_group") or customer_group.get("name")
-			if customer_group_name:
-				pos_profile.append("customer_groups", {"customer_group": customer_group_name})
-		
-	pos_profile.save()
-	return pos_profile
-	
-@frappe.whitelist()
-def delete_pos_profile(pos_profile):
-	"""
-		Delete a POS Profile
-		
-		Args:
-			pos_profile: POS Profile name
-	"""
-	pos_profile = frappe.get_doc("POS Profile", pos_profile)
-	pos_profile.delete()

@@ -99,8 +99,7 @@ fixtures = [
 					"Item-custom_company",
 					"POS Profile-posa_cash_mode_of_payment",
 					"POS Profile-posa_allow_delete",
-					"POS Profile-posa_block_sale_beyond_available_qty",
-					"Mode of Payment-is_wallet_payment"
+					"POS Profile-posa_block_sale_beyond_available_qty"
 				]
 			]
 		]
@@ -116,19 +115,7 @@ fixtures = [
 				]
 			]
 		]
-	},
-    {
-        "dt": "Role",
-        "filters": [
-            ["role_name", "in", ["POSNext Cashier"]]
-        ]
-    },
-    {
-        "dt": "Custom DocPerm",
-        "filters": [
-            ["role", "in", ["POSNext Cashier"]]
-        ]
-    }
+	}
 ]
 
 # Installation
@@ -189,9 +176,9 @@ standard_queries = {
 # ---------------
 # Override standard doctype classes
 
-override_doctype_class = {
-	"Sales Invoice": "pos_next.overrides.sales_invoice.CustomSalesInvoice"
-}
+# override_doctype_class = {
+# 	"ToDo": "custom_app.overrides.CustomToDo"
+# }
 
 # Document Events
 # ---------------
@@ -201,19 +188,11 @@ doc_events = {
 	"Item": {
 		"validate": "pos_next.validations.validate_item"
 	},
-	"Customer": {
-		"after_insert": "pos_next.api.customers.auto_assign_loyalty_program"
-	},
 	"Sales Invoice": {
-		"validate": [
-			"pos_next.api.sales_invoice_hooks.validate",
-			"pos_next.api.wallet.validate_wallet_payment"
-		],
+		"validate": "pos_next.api.sales_invoice_hooks.validate",
+		"before_save": "pos_next.api.sales_invoice_hooks.before_save",
 		"before_cancel": "pos_next.api.sales_invoice_hooks.before_cancel",
-		"on_submit": [
-			"pos_next.realtime_events.emit_stock_update_event",
-			"pos_next.api.wallet.process_loyalty_to_wallet"
-		],
+		"on_submit": "pos_next.realtime_events.emit_stock_update_event",
 		"on_cancel": "pos_next.realtime_events.emit_stock_update_event",
 		"after_insert": "pos_next.realtime_events.emit_invoice_created_event"
 	},
