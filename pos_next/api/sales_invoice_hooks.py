@@ -8,114 +8,73 @@ Event handlers for Sales Invoice document events
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import flt
 
 
 def validate(doc, method=None):
 	"""
 	Validate hook for Sales Invoice.
 	Apply tax inclusive settings based on POS Profile configuration.
-	Auto-assign loyalty program to customer if enabled.
 
 	Args:
 		doc: Sales Invoice document
 		method: Hook method name (unused)
 	"""
-	apply_tax_inclusive(doc)
-	auto_assign_loyalty_program_on_invoice(doc)
+	if not doc.pos_profile:
+		return
+	
+	from pos_next.api.tax_utils import apply_tax_inclusive_settings, calculate_taxes_if_needed
+	
+	# Apply tax-inclusive settings (filters RCM, sets included_in_print_rate, ensures item amounts)
+	if apply_tax_inclusive_settings(doc):
+		# Calculate taxes if tax-inclusive mode is active
+		calculate_taxes_if_needed(doc, force=True)
+		
+		# Warn if taxes are still 0 after calculation
+		if doc.get("taxes"):
+			total_tax = sum(flt(tax.tax_amount or 0) for tax in doc.get("taxes", []))
+			if total_tax == 0:
+				frappe.log_error(
+					f"WARNING: Tax-inclusive mode but tax amount is 0 after calculation. "
+					f"Invoice: {doc.name if hasattr(doc, 'name') else 'NEW'}",
+					"POS Tax Inclusive Warning"
+				)
 
 
-def apply_tax_inclusive(doc):
+def before_save(doc, method=None):
 	"""
-	Mark taxes as inclusive based on POS Profile setting.
-
-	This function reads the tax_inclusive setting from POS Settings
-	and applies it to all taxes in the invoice (except Actual charge type).
-
+	Before Save hook for Sales Invoice.
+	This runs AFTER validate() and ensures taxes are calculated correctly.
+	
+	This is critical because set_missing_values() might be called during save,
+	which could reload taxes from template and reset included_in_print_rate.
+	
+	This is the FINAL opportunity to set taxes correctly before save.
+	
 	Args:
 		doc: Sales Invoice document
+		method: Hook method name (unused)
 	"""
 	if not doc.pos_profile:
 		return
-
-	try:
-		# Get POS Settings for this profile
-		pos_settings = frappe.db.get_value(
-			"POS Settings",
-			{"pos_profile": doc.pos_profile},
-			["tax_inclusive"],
-			as_dict=True
-		)
-		tax_inclusive = pos_settings.get("tax_inclusive", 0) if pos_settings else 0
-	except Exception:
-		tax_inclusive = 0
-
-	has_changes = False
-	for tax in doc.get("taxes", []):
-		# Skip Actual charge type - these can't be inclusive
-		if tax.charge_type == "Actual":
-			if tax.included_in_print_rate:
-				tax.included_in_print_rate = 0
-				has_changes = True
-			continue
-
-		# Apply tax inclusive setting
-		if tax_inclusive and not tax.included_in_print_rate:
-			tax.included_in_print_rate = 1
-			has_changes = True
-		elif not tax_inclusive and tax.included_in_print_rate:
-			tax.included_in_print_rate = 0
-			has_changes = True
-
-	# Recalculate if we made changes
-	if has_changes:
-		doc.calculate_taxes_and_totals()
-
-
-def auto_assign_loyalty_program_on_invoice(doc):
-	"""
-	Auto-assign loyalty program to customer if loyalty is enabled in POS Settings
-	but customer doesn't have a loyalty program yet.
-
-	This ensures customers created before loyalty was enabled can still earn points.
-
-	Args:
-		doc: Sales Invoice document
-	"""
-	if not doc.is_pos or not doc.pos_profile or not doc.customer:
-		return
-
-	# Check if customer already has a loyalty program
-	customer_loyalty = frappe.db.get_value("Customer", doc.customer, "loyalty_program")
-	if customer_loyalty:
-		return
-
-	# Get POS Settings
-	pos_settings = frappe.db.get_value(
-		"POS Settings",
-		{"pos_profile": doc.pos_profile},
-		["enable_loyalty_program", "default_loyalty_program"],
-		as_dict=True
-	)
-
-	if not pos_settings:
-		return
-
-	if not cint(pos_settings.get("enable_loyalty_program")):
-		return
-
-	loyalty_program = pos_settings.get("default_loyalty_program")
-	if not loyalty_program:
-		return
-
-	# Assign loyalty program to customer
-	frappe.db.set_value(
-		"Customer",
-		doc.customer,
-		"loyalty_program",
-		loyalty_program,
-		update_modified=False
-	)
+	
+	from pos_next.api.tax_utils import apply_tax_inclusive_settings, calculate_taxes_if_needed
+	
+	# Apply tax-inclusive settings (filters RCM, sets included_in_print_rate, ensures item amounts)
+	# This is the final safeguard before save
+	if apply_tax_inclusive_settings(doc):
+		# Calculate taxes if tax-inclusive mode is active
+		calculate_taxes_if_needed(doc, force=True)
+		
+		# Final check - if taxes are still 0, log error
+		if doc.get("taxes"):
+			total_tax = sum(flt(tax.tax_amount or 0) for tax in doc.get("taxes", []))
+			if total_tax == 0:
+				frappe.log_error(
+					f"ERROR: Tax-inclusive mode but tax amount is 0 after calculation! "
+					f"Invoice: {doc.name if hasattr(doc, 'name') else 'NEW'}",
+					"POS Tax Calculation Error"
+				)
 
 
 def before_cancel(doc, method=None):
