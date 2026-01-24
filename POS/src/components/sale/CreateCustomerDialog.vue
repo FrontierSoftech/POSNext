@@ -1,18 +1,17 @@
 <template>
-	<Dialog v-model="show" :options="{ title: __('Create New Customer'), size: 'md' }">
+	<Dialog v-model="show" :options="{ title: __('New Customer'), size: 'lg' }">
 		<template #body-content>
-			<div class="flex flex-col gap-6">
-				<!-- GSTIN with Autofill (Optional) -->
+			<div class="flex flex-col gap-4 max-h-[70vh] overflow-y-auto px-1">
+				<!-- GSTIN / UIN -->
 				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
-						{{ __("GSTIN") }}
-						<span class="text-xs text-gray-500 font-normal ml-1">({{ __("Optional") }})</span>
+					<label class="block text-start text-sm font-medium text-gray-700 mb-1">
+						{{ __("GSTIN / UIN") }}
 					</label>
 					<div class="flex gap-2">
 						<input
 							v-model="customerData.gstin"
 							type="text"
-							:placeholder="__('Enter 15-digit GSTIN to autofill')"
+							:placeholder="__('Enter 15-digit GSTIN')"
 							maxlength="15"
 							class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-start uppercase"
 							@input="customerData.gstin = customerData.gstin.toUpperCase()"
@@ -23,38 +22,36 @@
 							:disabled="!customerData.gstin || customerData.gstin.length !== 15 || fetchingGSTIN"
 							class="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
 						>
-							{{ fetchingGSTIN ? __("Fetching...") : __("Autofill") }}
+							{{ fetchingGSTIN ? __("...") : __("Fetch") }}
 						</button>
 					</div>
-					<p v-if="gstinStatus" class="mt-1 text-xs" :class="gstinStatus.includes('Status') ? 'text-green-600' : 'text-red-600'">
+					<p v-if="gstinStatus" class="mt-1 text-xs" :class="gstinStatus.includes('Status') || gstinStatus.includes('success') ? 'text-green-600' : 'text-red-600'">
 						{{ gstinStatus }}
-					</p>
-					<p class="mt-1 text-xs text-gray-500">
-						{{ __("Enter GSTIN to auto-populate business details, or fill manually below") }}
 					</p>
 				</div>
 
-				<!-- Customer Name (Required) -->
+				<!-- Customer Name -->
 				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+					<label class="block text-start text-sm font-medium text-gray-700 mb-1">
 						{{ __("Customer Name") }} <span class="text-red-500">*</span>
 					</label>
-					<Input
+					<input
 						v-model="customerData.customer_name"
 						type="text"
-						:placeholder="__('Enter customer name')"
+						:placeholder="__('customer_name')"
 						required
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
 					/>
 				</div>
 
 				<!-- Customer Type -->
 				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+					<label class="block text-start text-sm font-medium text-gray-700 mb-1">
 						{{ __("Customer Type") }}
 					</label>
 					<select
 						v-model="customerData.customer_type"
-						class="w-full px-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
 					>
 						<option v-for="type in customerTypes" :key="type" :value="type">
 							{{ type }}
@@ -62,25 +59,53 @@
 					</select>
 				</div>
 
+				<!-- Profession (Custom Field) -->
+				<div>
+					<label class="block text-start text-sm font-medium text-gray-700 mb-1">
+						{{ __("Profession") }} <span class="text-red-500">*</span>
+					</label>
+					<select
+						v-model="customerData.custom_profession"
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+					>
+						<option value="">{{ __("Select Profession") }}</option>
+						<option v-for="prof in professions" :key="prof" :value="prof">
+							{{ prof }}
+						</option>
+					</select>
+				</div>
+
 				<!-- GST Category -->
 				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+					<label class="block text-start text-sm font-medium text-gray-700 mb-1">
 						{{ __("GST Category") }}
 					</label>
 					<select
 						v-model="customerData.gst_category"
-						class="w-full px-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
 					>
-						<option value="">{{ __("Select GST Category") }}</option>
 						<option v-for="category in gstCategories" :key="category" :value="category">
 							{{ category }}
 						</option>
 					</select>
 				</div>
 
-				<!-- Mobile Number with Country Code Selector -->
+				<!-- Email ID -->
 				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
+					<label class="block text-start text-sm font-medium text-gray-700 mb-1">
+						{{ __("Email ID") }}
+					</label>
+					<input
+						v-model="customerData.email_id"
+						type="email"
+						:placeholder="__('_email_id')"
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+					/>
+				</div>
+
+				<!-- Mobile Number -->
+				<div>
+					<label class="block text-start text-sm font-medium text-gray-700 mb-1">
 						{{ __("Mobile Number") }}
 					</label>
 					<div class="flex gap-2">
@@ -97,7 +122,7 @@
 									class="w-6 h-auto rounded-sm"
 									@error="handleFlagError"
 								/>
-								<span class="flex-1 text-start">{{ selectedCountryCode || "+20" }}</span>
+								<span class="flex-1 text-start">{{ selectedCountryCode || "+91" }}</span>
 								<svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
 								</svg>
@@ -113,7 +138,7 @@
 										ref="countrySearchRef"
 										v-model="countrySearchQuery"
 										type="text"
-										:placeholder="__('Search country or code...')"
+										:placeholder="__('Search country...')"
 										class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
 										@keydown.escape="showCountryDropdown = false"
 									/>
@@ -147,51 +172,156 @@
 						<input
 							v-model="phoneNumber"
 							type="tel"
-							:placeholder="__('Enter phone number')"
+							:placeholder="__('_mobile_no')"
 							class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-start"
 							@input="updateMobileNumber"
 						/>
 					</div>
 				</div>
 
-				<!-- Email -->
-				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
-						{{ __("Email") }}
-					</label>
-					<Input v-model="customerData.email_id" type="email" :placeholder="__('Enter email address')" />
-				</div>
+				<!-- Primary Address Details Section -->
+				<div class="border-t border-gray-200 pt-4 mt-2">
+					<h3 class="text-sm font-semibold text-gray-800 mb-3">{{ __("Primary Address Details") }}</h3>
 
-				<!-- Customer Group -->
-				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
-						{{ __("Customer Group") }}
-					</label>
-					<select
-						v-model="customerData.customer_group"
-						class="w-full px-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-					>
-						<option value="">{{ __("Select Customer Group") }}</option>
-						<option v-for="group in customerGroups" :key="group" :value="group">
-							{{ group }}
-						</option>
-					</select>
-				</div>
+					<!-- Postal Code with search -->
+					<div class="mb-3">
+						<label class="block text-start text-sm font-medium text-gray-700 mb-1">
+							{{ __("Postal Code") }}
+						</label>
+						<div class="relative">
+							<input
+								v-model="addressData.pincode"
+								type="text"
+								:placeholder="__('Begin typing for results.')"
+								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+								@input="onPincodeInput"
+							/>
+							<!-- Pincode suggestions dropdown -->
+							<div
+								v-if="pincodeSuggestions.length > 0 && showPincodeSuggestions"
+								class="absolute z-50 mt-1 w-full bg-white rounded-lg shadow-lg border border-gray-200 max-h-48 overflow-y-auto"
+							>
+								<button
+									v-for="suggestion in pincodeSuggestions"
+									:key="suggestion.pincode"
+									type="button"
+									@click="selectPincode(suggestion)"
+									class="w-full px-3 py-2 text-start text-sm hover:bg-gray-50"
+								>
+									{{ suggestion.pincode }} - {{ suggestion.city }}, {{ suggestion.state }}
+								</button>
+							</div>
+						</div>
+					</div>
 
-				<!-- Territory -->
-				<div>
-					<label class="block text-start text-sm font-medium text-gray-700 mb-2">
-						{{ __("Territory") }}
-					</label>
-					<select
-						v-model="customerData.territory"
-						class="w-full px-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-					>
-						<option value="">{{ __("Select Territory") }}</option>
-						<option v-for="territory in territories" :key="territory" :value="territory">
-							{{ territory }}
-						</option>
-					</select>
+					<!-- Address Line 1 -->
+					<div class="mb-3">
+						<label class="block text-start text-sm font-medium text-gray-700 mb-1">
+							{{ __("Address Line 1") }} <span class="text-red-500">*</span>
+						</label>
+						<input
+							v-model="addressData.address_line1"
+							type="text"
+							:placeholder="__('address_line1')"
+							class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						/>
+					</div>
+
+					<!-- Address Line 2 -->
+					<div class="mb-3">
+						<label class="block text-start text-sm font-medium text-gray-700 mb-1">
+							{{ __("Address Line 2") }}
+						</label>
+						<input
+							v-model="addressData.address_line2"
+							type="text"
+							:placeholder="__('address_line2')"
+							class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						/>
+					</div>
+
+					<!-- City/Town -->
+					<div class="mb-3">
+						<label class="block text-start text-sm font-medium text-gray-700 mb-1">
+							{{ __("City/Town") }} <span class="text-red-500">*</span>
+						</label>
+						<input
+							v-model="addressData.city"
+							type="text"
+							:placeholder="__('city')"
+							class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+						/>
+					</div>
+
+					<!-- State/Province with search -->
+					<div class="mb-3">
+						<label class="block text-start text-sm font-medium text-gray-700 mb-1">
+							{{ __("State/Province") }}
+						</label>
+						<div class="relative" ref="stateDropdownRef">
+							<input
+								v-model="stateSearchQuery"
+								type="text"
+								:placeholder="__('Begin typing for results.')"
+								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+								@focus="showStateDropdown = true"
+								@input="showStateDropdown = true"
+							/>
+							<div
+								v-if="showStateDropdown && filteredStates.length > 0"
+								class="absolute z-50 mt-1 w-full bg-white rounded-lg shadow-lg border border-gray-200 max-h-48 overflow-y-auto"
+							>
+								<button
+									v-for="state in filteredStates"
+									:key="state"
+									type="button"
+									@click="selectState(state)"
+									class="w-full px-3 py-2 text-start text-sm hover:bg-gray-50"
+									:class="{ 'bg-blue-50': addressData.state === state }"
+								>
+									{{ state }}
+								</button>
+							</div>
+						</div>
+					</div>
+
+					<!-- Country with search -->
+					<div class="mb-3">
+						<label class="block text-start text-sm font-medium text-gray-700 mb-1">
+							{{ __("Country") }} <span class="text-red-500">*</span>
+						</label>
+						<div class="relative" ref="countryAddressDropdownRef">
+							<input
+								v-model="countryAddressSearchQuery"
+								type="text"
+								:placeholder="__('Begin typing for results.')"
+								class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+								@focus="showCountryAddressDropdown = true"
+								@input="showCountryAddressDropdown = true"
+							/>
+							<div
+								v-if="showCountryAddressDropdown && filteredAddressCountries.length > 0"
+								class="absolute z-50 mt-1 w-full bg-white rounded-lg shadow-lg border border-gray-200 max-h-48 overflow-y-auto"
+							>
+								<button
+									v-for="country in filteredAddressCountries"
+									:key="country.name"
+									type="button"
+									@click="selectAddressCountry(country)"
+									class="w-full px-3 py-2 text-start text-sm hover:bg-gray-50 flex items-center gap-2"
+									:class="{ 'bg-blue-50': addressData.country === country.name }"
+								>
+									<img
+										:src="`https://flagcdn.com/h24/${country.code.toLowerCase()}.png`"
+										:alt="country.name"
+										class="w-5 h-auto rounded-sm"
+										@error="(e) => (e.target.style.display = 'none')"
+									/>
+									{{ country.name }}
+								</button>
+							</div>
+						</div>
+					</div>
 				</div>
 			</div>
 		</template>
@@ -221,8 +351,8 @@
 					<Button
 						variant="solid"
 						@click="handleCreate"
-						:loading="createCustomerResource.loading || checkingPermission"
-						:disabled="!customerData.customer_name || !hasPermission"
+						:loading="creating"
+						:disabled="!canSubmit"
 					>
 						{{ __("Create Customer") }}
 					</Button>
@@ -240,17 +370,18 @@
  * CreateCustomerDialog - Quick customer creation from POS
  *
  * Features:
- * - Country code selector with flag icons and search
- * - Auto-sets territory based on selected country
- * - Permission checking before allowing creation
- * - Lazy loads countries data when dialog opens (not on app startup)
+ * - GSTIN autofill from India Compliance API
+ * - Address creation with customer
+ * - Country code selector with flag icons
+ * - State/Country search dropdowns
+ * - Pincode lookup (for India)
  */
 
 import { usePOSPermissions } from "@/composables/usePermissions"
 import { useToast } from "@/composables/useToast"
 import { useCountriesStore } from "@/stores/countries"
 import { logger } from "@/utils/logger"
-import { Button, Dialog, Input, createResource } from "frappe-ui"
+import { Button, Dialog, createResource, call } from "frappe-ui"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 const log = logger.create("CreateCustomerDialog")
@@ -281,29 +412,69 @@ const emit = defineEmits(["update:modelValue", "customer-created"])
 
 const hasPermission = ref(true)
 const checkingPermission = ref(false)
-const selectedCountryCode = ref("")
+const creating = ref(false)
+const selectedCountryCode = ref("+91")
 const phoneNumber = ref("")
 const showCountryDropdown = ref(false)
 const countrySearchQuery = ref("")
 const dropdownRef = ref(null)
 const countrySearchRef = ref(null)
 
-const customerGroups = ref(["Commercial", "Individual", "Non Profit", "Government"])
-const territories = ref(["All Territories"])
-const customerTypes = ref(["Company", "Individual", "Partnership"])
-const gstCategories = ref(["Registered Regular", "Registered Composition", "Unregistered", "SEZ", "Overseas", "Tax Deductor", "Tax Collector", "UIN Holders"])
+// State dropdown
+const showStateDropdown = ref(false)
+const stateSearchQuery = ref("")
+const stateDropdownRef = ref(null)
+
+// Country address dropdown
+const showCountryAddressDropdown = ref(false)
+const countryAddressSearchQuery = ref("India")
+const countryAddressDropdownRef = ref(null)
+
+// Pincode suggestions
+const pincodeSuggestions = ref([])
+const showPincodeSuggestions = ref(false)
+
+// Customer Types and Options
+const customerTypes = ref(["Individual", "Company", "Partnership"])
+const gstCategories = ref(["Unregistered", "Registered Regular", "Registered Composition", "SEZ", "Overseas", "Deemed Export", "UIN Holders"])
+const professions = ref([])
 const fetchingGSTIN = ref(false)
 const gstinStatus = ref("")
 
+// Indian States for GST
+const indianStates = ref([
+	"Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam",
+	"Bihar", "Chandigarh", "Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu",
+	"Delhi", "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jammu and Kashmir",
+	"Jharkhand", "Karnataka", "Kerala", "Ladakh", "Lakshadweep", "Madhya Pradesh",
+	"Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha",
+	"Puducherry", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana",
+	"Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal"
+])
+
+// Customer Data
 const customerData = ref({
 	customer_name: "",
 	customer_type: "Individual",
-	mobile_no: "",
+	custom_profession: "",
+	gst_category: "Unregistered",
 	email_id: "",
-	customer_group: "Individual",
-	territory: "All Territories",
+	mobile_no: "",
 	gstin: "",
-	gst_category: "",
+	customer_group: "Customers",
+	territory: "All Territories",
+})
+
+// Address Data
+const addressData = ref({
+	address_line1: "",
+	address_line2: "",
+	city: "",
+	state: "",
+	country: "India",
+	pincode: "",
+	is_primary_address: true,
+	is_shipping_address: true,
 })
 
 // =============================================================================
@@ -317,20 +488,42 @@ const show = computed({
 
 const currentCountryCode = computed(() => {
 	const country = countriesStore.countries.find((c) => c.isd === selectedCountryCode.value)
-	return country?.code.toLowerCase() || "eg"
+	return country?.code.toLowerCase() || "in"
 })
 
 const filteredCountries = computed(() => {
 	if (!countrySearchQuery.value) return countriesStore.countries
-
 	const query = countrySearchQuery.value.toLowerCase()
 	return countriesStore.countries.filter(
 		(c) => c.name.toLowerCase().includes(query) || c.isd.includes(query) || c.code.toLowerCase().includes(query)
 	)
 })
 
+const filteredStates = computed(() => {
+	if (!stateSearchQuery.value) return indianStates.value
+	const query = stateSearchQuery.value.toLowerCase()
+	return indianStates.value.filter((s) => s.toLowerCase().includes(query))
+})
+
+const filteredAddressCountries = computed(() => {
+	if (!countryAddressSearchQuery.value) return countriesStore.countries
+	const query = countryAddressSearchQuery.value.toLowerCase()
+	return countriesStore.countries.filter((c) => c.name.toLowerCase().includes(query))
+})
+
+const canSubmit = computed(() => {
+	return (
+		hasPermission.value &&
+		customerData.value.customer_name &&
+		customerData.value.custom_profession &&
+		addressData.value.address_line1 &&
+		addressData.value.city &&
+		addressData.value.country
+	)
+})
+
 // =============================================================================
-// Country & Territory Methods
+// Country & Phone Methods
 // =============================================================================
 
 const handleFlagError = (e) => (e.target.style.display = "none")
@@ -347,58 +540,68 @@ const updateMobileNumber = () => {
 }
 
 const handleClickOutside = (event) => {
+	// Phone country dropdown
 	if (dropdownRef.value && !dropdownRef.value.contains(event.target)) {
 		showCountryDropdown.value = false
 		countrySearchQuery.value = ""
 	}
+	// State dropdown
+	if (stateDropdownRef.value && !stateDropdownRef.value.contains(event.target)) {
+		showStateDropdown.value = false
+	}
+	// Country address dropdown
+	if (countryAddressDropdownRef.value && !countryAddressDropdownRef.value.contains(event.target)) {
+		showCountryAddressDropdown.value = false
+	}
+	// Pincode suggestions
+	showPincodeSuggestions.value = false
 }
 
-const setCountryFromName = (countryName) => {
-	if (!countryName) {
-		selectedCountryCode.value = "+20"
-		return
-	}
+// =============================================================================
+// State & Country Selection
+// =============================================================================
 
-	const isd = countriesStore.countryNameToISDMap[countryName]
-	if (isd) {
-		selectedCountryCode.value = isd
-		log.info(`Set country code to ${isd} for ${countryName}`)
+const selectState = (state) => {
+	addressData.value.state = state
+	stateSearchQuery.value = state
+	showStateDropdown.value = false
+}
+
+const selectAddressCountry = (country) => {
+	addressData.value.country = country.name
+	countryAddressSearchQuery.value = country.name
+	showCountryAddressDropdown.value = false
+}
+
+// =============================================================================
+// Pincode Lookup
+// =============================================================================
+
+const onPincodeInput = async () => {
+	const pincode = addressData.value.pincode
+	if (pincode && pincode.length >= 3 && addressData.value.country === "India") {
+		// Simple pincode lookup - in real implementation, call API
+		showPincodeSuggestions.value = true
+		// For now, just clear suggestions - you can implement actual API lookup
+		pincodeSuggestions.value = []
 	} else {
-		log.warn(`Country "${countryName}" not found`)
-		selectedCountryCode.value = "+20"
+		showPincodeSuggestions.value = false
+		pincodeSuggestions.value = []
 	}
 }
 
-/** Auto-set territory based on selected country (exact or fuzzy match) */
-const updateTerritoryFromCountry = () => {
-	if (!territories.value.length) return
-
-	const country = countriesStore.countries.find((c) => c.isd === selectedCountryCode.value)
-	if (!country) return
-
-	// Try exact match first
-	if (territories.value.includes(country.name)) {
-		customerData.value.territory = country.name
-		log.info(`Territory set to: ${country.name}`)
-		return
-	}
-
-	// Try fuzzy match
-	const fuzzyMatch = territories.value.find(
-		(t) => t.toLowerCase().includes(country.name.toLowerCase()) || country.name.toLowerCase().includes(t.toLowerCase())
-	)
-
-	if (fuzzyMatch) {
-		customerData.value.territory = fuzzyMatch
-		log.info(`Territory set to fuzzy match: ${fuzzyMatch}`)
-	}
+const selectPincode = (suggestion) => {
+	addressData.value.pincode = suggestion.pincode
+	addressData.value.city = suggestion.city
+	addressData.value.state = suggestion.state
+	stateSearchQuery.value = suggestion.state
+	showPincodeSuggestions.value = false
 }
 
 // =============================================================================
 // GSTIN Autofill Methods
 // =============================================================================
 
-/** Fetch GSTIN info from POS API */
 const fetchGSTINInfo = async () => {
 	const gstin = customerData.value.gstin?.trim()
 
@@ -411,7 +614,6 @@ const fetchGSTINInfo = async () => {
 	gstinStatus.value = "Fetching..."
 
 	try {
-		// Get CSRF token from window.frappe or window
 		const csrfToken = window.frappe?.csrf_token || window.csrf_token || ""
 
 		const response = await fetch("/api/method/pos_next.api.gstin.get_gstin_info_for_pos", {
@@ -420,9 +622,7 @@ const fetchGSTINInfo = async () => {
 				"Content-Type": "application/json",
 				"X-Frappe-CSRF-Token": csrfToken,
 			},
-			body: JSON.stringify({
-				gstin: gstin,
-			}),
+			body: JSON.stringify({ gstin }),
 		})
 
 		if (!response.ok) {
@@ -431,11 +631,8 @@ const fetchGSTINInfo = async () => {
 
 		const data = await response.json()
 
-		// Check for Frappe exception
 		if (data.exc || data._server_messages) {
 			let errorMsg = "Unable to verify GSTIN"
-
-			// Try to extract error message from server messages
 			if (data._server_messages) {
 				try {
 					const messages = JSON.parse(data._server_messages)
@@ -447,16 +644,14 @@ const fetchGSTINInfo = async () => {
 					log.warn("Could not parse server messages", e)
 				}
 			}
-
 			gstinStatus.value = errorMsg
-			log.warn("GSTIN verification failed", { gstin, error: errorMsg })
 			return
 		}
 
 		if (data.message && !data.message.error) {
 			const gstinInfo = data.message
 
-			// Set business name as customer name (only if empty)
+			// Set business name as customer name
 			if (gstinInfo.business_name && !customerData.value.customer_name) {
 				customerData.value.customer_name = gstinInfo.business_name
 			}
@@ -466,7 +661,7 @@ const fetchGSTINInfo = async () => {
 				customerData.value.gst_category = gstinInfo.gst_category
 			}
 
-			// Set customer type based on GSTIN 6th character (F=Partnership, C=Company)
+			// Set customer type based on GSTIN 6th character
 			const gstinTypeChar = gstin[5]
 			if (gstinTypeChar === "F") {
 				customerData.value.customer_type = "Partnership"
@@ -477,119 +672,167 @@ const fetchGSTINInfo = async () => {
 			// Set address if available
 			if (gstinInfo.permanent_address) {
 				const addr = gstinInfo.permanent_address
-
-				// Set state-based territory
-				if (addr.state && territories.value.includes(addr.state)) {
-					customerData.value.territory = addr.state
+				if (addr.line1) addressData.value.address_line1 = addr.line1
+				if (addr.line2) addressData.value.address_line2 = addr.line2
+				if (addr.city) addressData.value.city = addr.city
+				if (addr.state) {
+					addressData.value.state = addr.state
+					stateSearchQuery.value = addr.state
 				}
+				if (addr.pincode) addressData.value.pincode = addr.pincode
+				addressData.value.country = "India"
+				countryAddressSearchQuery.value = "India"
 			}
 
-			// Set status description
-			if (gstinInfo.status) {
-				gstinStatus.value = `Status: ${gstinInfo.status}`
-			} else {
-				gstinStatus.value = "Details fetched successfully"
-			}
-
-			log.info("GSTIN info fetched successfully", gstinInfo)
+			gstinStatus.value = gstinInfo.status ? `Status: ${gstinInfo.status}` : "Details fetched successfully"
 			showSuccess(__("GSTIN details fetched successfully"))
 		} else {
-			const errorMsg = data.message?.message || "Invalid GSTIN or unable to fetch details"
-			gstinStatus.value = errorMsg
-			log.warn("Failed to fetch GSTIN info", data)
+			gstinStatus.value = data.message?.message || "Invalid GSTIN or unable to fetch details"
 		}
 	} catch (error) {
 		log.error("Error fetching GSTIN info", error)
-		const errorMsg = error.message || "Network error while fetching GSTIN details"
-		gstinStatus.value = errorMsg
-		showError(__("Error: {0}", [errorMsg]))
+		gstinStatus.value = error.message || "Network error"
+		showError(__("Error: {0}", [error.message]))
 	} finally {
 		fetchingGSTIN.value = false
 	}
 }
 
 // =============================================================================
-// API Resources
+// Load Professions (Custom Field Options)
 // =============================================================================
 
-const createCustomerResource = createResource({
-	url: "frappe.client.insert",
-	makeParams: () => ({
-		doc: {
+const loadProfessions = async () => {
+	try {
+		const csrfToken = window.frappe?.csrf_token || window.csrf_token || ""
+		// Query Custom Field doctype since custom_profession is a custom field
+		const response = await fetch("/api/method/frappe.client.get_list", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"X-Frappe-CSRF-Token": csrfToken,
+			},
+			body: JSON.stringify({
+				doctype: "Custom Field",
+				filters: {
+					dt: "Customer",
+					fieldname: "custom_profession",
+				},
+				fields: ["options"],
+			}),
+		})
+
+		if (response.ok) {
+			const data = await response.json()
+			if (data.message && data.message.length > 0 && data.message[0].options) {
+				professions.value = data.message[0].options.split("\n").filter((p) => p.trim())
+			}
+		}
+	} catch (error) {
+		log.warn("Could not load professions", error)
+		// Use default professions if API fails
+		professions.value = ["Doctor", "Accountant", "Business", "CA", "Student"]
+	}
+}
+
+// =============================================================================
+// Create Customer & Address
+// =============================================================================
+
+const handleCreate = async () => {
+	if (!customerData.value.customer_name) {
+		return showError(__("Customer Name is required"))
+	}
+
+	if (!customerData.value.custom_profession) {
+		return showError(__("Profession is required"))
+	}
+
+	if (!addressData.value.address_line1) {
+		return showError(__("Address Line 1 is required"))
+	}
+
+	if (!addressData.value.city) {
+		return showError(__("City is required"))
+	}
+
+	creating.value = true
+
+	try {
+		// Step 1: Create Customer using frappe.call
+		const customerDoc = {
 			doctype: "Customer",
 			customer_name: customerData.value.customer_name,
 			customer_type: customerData.value.customer_type || "Individual",
-			customer_group: customerData.value.customer_group || __("Individual"),
-			territory: customerData.value.territory || __("All Territories"),
+			customer_group: customerData.value.customer_group || "Customers",
+			territory: customerData.value.territory || "All Territories",
 			mobile_no: customerData.value.mobile_no || "",
 			email_id: customerData.value.email_id || "",
 			gstin: customerData.value.gstin || "",
-			gst_category: customerData.value.gst_category || "",
-		},
-	}),
-	onSuccess: (data) => {
-		showSuccess(__("Customer {0} created successfully", [data.customer_name]))
-		emit("customer-created", data)
+			gst_category: customerData.value.gst_category || "Unregistered",
+			custom_profession: customerData.value.custom_profession || "",
+		}
+
+		// Create customer using frappe-ui call
+		const customerResult = await call("frappe.client.insert", { doc: customerDoc })
+		log.info("Customer created", customerResult)
+
+		// Step 2: Create Address linked to Customer
+		// Only create address if address_line1 is provided
+		if (addressData.value.address_line1) {
+			const addressDoc = {
+				doctype: "Address",
+				address_title: customerData.value.customer_name,
+				address_type: "Billing",
+				address_line1: addressData.value.address_line1,
+				address_line2: addressData.value.address_line2 || "",
+				city: addressData.value.city,
+				state: addressData.value.state || "",
+				country: addressData.value.country || "India",
+				pincode: addressData.value.pincode || "",
+				is_primary_address: 1,
+				is_shipping_address: 1,
+				// GST Category is required by India Compliance - use customer's GST category
+				gst_category: customerData.value.gst_category || "Unregistered",
+				// GSTIN if customer has one
+				gstin: customerData.value.gstin || "",
+				links: [
+					{
+						link_doctype: "Customer",
+						link_name: customerResult.name,
+					},
+				],
+			}
+
+			try {
+				const addressResult = await call("frappe.client.insert", { doc: addressDoc })
+				log.info("Address created successfully", addressResult)
+			} catch (addrError) {
+				log.error("Failed to create address", addrError)
+				// Show warning but don't fail the whole operation
+				showError(__("Customer created but address could not be saved: {0}", [addrError.message || "Unknown error"]))
+			}
+		}
+
+		showSuccess(__("Customer {0} created successfully", [customerResult.customer_name]))
+		emit("customer-created", customerResult)
 		show.value = false
-	},
-	onError: (error) => {
+	} catch (error) {
 		log.error("Error creating customer", error)
 		showError(error.message || __("Failed to create customer"))
-	},
-})
-
-/** Helper to create list fetch resources */
-const createListResource = (doctype, onSuccess) =>
-	createResource({
-		url: "frappe.client.get_list",
-		makeParams: () => ({
-			doctype,
-			fields: ["name"],
-			filters: doctype === "Customer Group" ? { is_group: 0 } : {},
-			limit_page_length: 500,
-		}),
-		auto: false,
-		onSuccess: (data) => data?.length && onSuccess(data.map((d) => d.name)),
-		onError: (err) => log.error(`Error loading ${doctype}`, err),
-	})
-
-const customerGroupsResource = createListResource("Customer Group", (names) => (customerGroups.value = names))
-const territoriesResource = createListResource("Territory", (names) => (territories.value = names))
-
-const posProfileResource = createResource({
-	url: "frappe.client.get_value",
-	makeParams: () => ({
-		doctype: "POS Profile",
-		filters: { name: props.posProfile },
-		fieldname: ["country"],
-	}),
-	auto: false,
-	onSuccess: (data) => setCountryFromName(data?.country || "Egypt"),
-	onError: (err) => {
-		log.error("Error loading POS Profile", err)
-		selectedCountryCode.value = "+20"
-	},
-})
+	} finally {
+		creating.value = false
+	}
+}
 
 // =============================================================================
 // Dialog Lifecycle
 // =============================================================================
 
 const loadDialogData = async () => {
-	// Lazy load countries (non-blocking)
 	countriesStore.loadCountries()
-
-	// Load form options
-	await territoriesResource.reload()
-	customerGroupsResource.reload()
+	loadProfessions()
 	checkPermissions()
-
-	// Set country from POS Profile
-	if (props.posProfile) {
-		await posProfileResource.reload()
-	} else {
-		selectedCountryCode.value = "+20"
-	}
 }
 
 const checkPermissions = async () => {
@@ -604,27 +847,33 @@ const checkPermissions = async () => {
 	}
 }
 
-const handleCreate = async () => {
-	if (!customerData.value.customer_name) {
-		return showError(__("Customer Name is required"))
-	}
-	await createCustomerResource.submit()
-}
-
 const resetForm = () => {
 	Object.assign(customerData.value, {
 		customer_name: "",
 		customer_type: "Individual",
-		mobile_no: "",
+		custom_profession: "",
+		gst_category: "Unregistered",
 		email_id: "",
-		customer_group: "Individual",
-		territory: "All Territories",
+		mobile_no: "",
 		gstin: "",
-		gst_category: "",
+		customer_group: "Customers",
+		territory: "All Territories",
 	})
-	selectedCountryCode.value = ""
+	Object.assign(addressData.value, {
+		address_line1: "",
+		address_line2: "",
+		city: "",
+		state: "",
+		country: "India",
+		pincode: "",
+		is_primary_address: true,
+		is_shipping_address: true,
+	})
+	selectedCountryCode.value = "+91"
 	phoneNumber.value = ""
 	gstinStatus.value = ""
+	stateSearchQuery.value = ""
+	countryAddressSearchQuery.value = "India"
 }
 
 // =============================================================================
@@ -646,11 +895,6 @@ watch(
 		}
 	}
 )
-
-watch(selectedCountryCode, async () => {
-	await nextTick()
-	updateTerritoryFromCountry()
-})
 
 watch(showCountryDropdown, async (isOpen) => {
 	if (isOpen) {
